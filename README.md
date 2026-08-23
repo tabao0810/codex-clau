@@ -53,11 +53,20 @@ verification timeout. They can be changed on `run`:
 codex-claude run "Implement the approved change" `
   --cwd D:\source\my-project `
   --max-workers 2 `
+  --terminal-mode auto `
   --claude-context-limit 55 `
   --codex-timeout 600 `
   --claude-timeout 1800 `
   --verification-timeout 900
 ```
+
+On Windows, `--terminal-mode auto` opens a separate console for every real
+Codex and Claude invocation. Codex windows remain open after their command
+finishes so you can inspect the output; Claude windows close automatically.
+The controller still owns the actual process, output contracts, timeouts and
+recovery state. Use `--terminal-mode hidden` for CI or when no visible windows
+are wanted. Linux and other headless environments use the existing hidden
+runner in `auto` mode; `visible` currently requires Windows.
 
 Append a requirement without replacing prior requirements:
 

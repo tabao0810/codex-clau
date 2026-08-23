@@ -86,6 +86,8 @@ class CodexAdapter:
             timeout=self.timeout,
             parse_jsonl=True,
             on_event=capture,
+            terminal_kind="codex",
+            keep_terminal_open=True,
         )
         if result.returncode != 0:
             raise ProcessError(f"Codex failed with exit code {result.returncode}: {result.stderr}")

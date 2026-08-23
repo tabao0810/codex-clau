@@ -126,7 +126,11 @@ class Controller:
             current_activity="Preparing the initial Codex plan.",
         )
         store.create(state)
-        runner = SubprocessRunner(max_output_bytes=config.max_output_bytes)
+        runner = SubprocessRunner(
+            max_output_bytes=config.max_output_bytes,
+            terminal_mode=config.terminal_mode,
+            terminal_artifact_dir=inspector.common_dir / "codex-claude" / run_id / "terminal",
+        )
         return cls(
             inspector=inspector,
             store=store,
@@ -168,7 +172,11 @@ class Controller:
         cls._require_executable(codex_prefix[0], "Codex")
         cls._require_executable(claude_prefix[0], "Claude")
         cls._preflight_cli(codex_prefix, claude_prefix)
-        runner = SubprocessRunner(max_output_bytes=state.config.max_output_bytes)
+        runner = SubprocessRunner(
+            max_output_bytes=state.config.max_output_bytes,
+            terminal_mode=state.config.terminal_mode,
+            terminal_artifact_dir=inspector.common_dir / "codex-claude" / state.run_id / "terminal",
+        )
         controller = cls(
             inspector=inspector,
             store=store,

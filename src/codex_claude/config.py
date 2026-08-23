@@ -16,6 +16,7 @@ class RunConfig:
     max_task_attempts: int = 3
     max_context_rotations: int = 3
     max_output_bytes: int = 1_000_000
+    terminal_mode: str = "auto"
 
     def __post_init__(self) -> None:
         positive_ints = {
@@ -32,6 +33,8 @@ class RunConfig:
                 raise ValidationError(f"{name} must be a positive integer")
         if not 1 <= self.claude_context_limit <= 100:
             raise ValidationError("claude_context_limit must be between 1 and 100")
+        if self.terminal_mode not in {"auto", "visible", "hidden"}:
+            raise ValidationError("terminal_mode must be auto, visible or hidden")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

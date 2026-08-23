@@ -17,3 +17,14 @@ def test_module_help_lists_public_commands() -> None:
     )
     assert completed.returncode == 0
     assert "{run,add,resume}" in completed.stdout
+
+
+def test_run_help_exposes_terminal_mode() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-m", "codex_claude", "run", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0
+    assert "--terminal-mode" in completed.stdout

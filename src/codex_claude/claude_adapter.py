@@ -133,6 +133,7 @@ class ClaudeAdapter:
             timeout=self.timeout,
             parse_jsonl=True,
             on_event=capture,
+            terminal_kind="claude",
         )
         if result.returncode != 0:
             raise ProcessError(f"Claude failed with exit code {result.returncode}: {result.stderr}")

@@ -65,6 +65,20 @@ Names matching token, password, secret, API key, authorization, or cookie are
 removed even if otherwise requested. Authentication therefore relies on the
 CLIs' existing login/config stores rather than forwarding raw API tokens.
 
+## Visible terminal mode
+
+On Windows, `terminal_mode=auto` runs real Codex and Claude invocations through
+a dedicated console host. The host starts the CLI with argv and `shell=False`,
+passes the prompt through an internal artifact file, and redacts stdout/stderr
+before persisting or displaying it. Codex hosts remain open after completion;
+Claude hosts exit automatically. The controller reads the host completion record
+and bounded logs, and can terminate the host process tree on timeout or Ctrl+C.
+
+Visible windows are not an interactive permission channel and do not expand the
+command policy, environment allowlist, or agent tool permissions. Fake commands,
+Linux, and CI retain the hidden runner unless visible mode is explicitly requested
+on a supported platform.
+
 ## Redaction and retained data
 
 Captured subprocess stdout and stderr are size-limited. Inline values in common

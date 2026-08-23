@@ -36,3 +36,8 @@ def test_invalid_task_transition_is_rejected() -> None:
 def test_run_config_rejects_invalid_limits(field: str, value: int) -> None:
     with pytest.raises(ValidationError):
         RunConfig(**{field: value})
+
+
+def test_run_config_rejects_invalid_terminal_mode() -> None:
+    with pytest.raises(ValidationError, match="terminal_mode"):
+        RunConfig(terminal_mode="embedded")

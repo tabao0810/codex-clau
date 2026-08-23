@@ -37,6 +37,12 @@ def _add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--codex-timeout", type=int, default=600)
     parser.add_argument("--claude-timeout", type=int, default=1800)
     parser.add_argument("--verification-timeout", type=int, default=900)
+    parser.add_argument(
+        "--terminal-mode",
+        choices=("auto", "visible", "hidden"),
+        default="auto",
+        help="show each real Codex/Claude invocation in a terminal when supported",
+    )
 
 
 def _config_from_args(args: argparse.Namespace) -> RunConfig:
@@ -46,6 +52,7 @@ def _config_from_args(args: argparse.Namespace) -> RunConfig:
         codex_timeout=args.codex_timeout,
         claude_timeout=args.claude_timeout,
         verification_timeout=args.verification_timeout,
+        terminal_mode=args.terminal_mode,
     )
 
 

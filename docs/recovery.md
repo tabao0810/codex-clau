@@ -57,6 +57,13 @@ Detached worker worktrees are created below an OS temporary directory whose name
 starts with `codex-claude-<run-id>-`. Their exact paths are recorded per task in
 `process.md`; never guess a temporary path from a broad glob.
 
+When visible terminal mode is active on Windows, each invocation also has a
+manifest, stdin artifact, redacted stdout/stderr logs and completion record under
+`.git/codex-claude/<run-id>/terminal/`. A completed Codex console may remain
+open for inspection even after its completion record lets the controller proceed.
+Do not delete these terminal artifacts while resuming; the controller uses them
+as diagnostic evidence when an invocation ends unexpectedly.
+
 The root `process.md` is excluded through `.git/info/exclude`, not the project's
 `.gitignore`. It and the `.git/codex-claude` tree are local operational data and
 do not appear in the source patch.
