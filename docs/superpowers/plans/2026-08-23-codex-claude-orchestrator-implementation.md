@@ -557,3 +557,15 @@ python -m build
 
 Mỗi milestone chỉ được xem là xong khi toàn bộ test của milestone và quality gate hiện có
 đều qua. Implementation không bắt đầu cho đến khi người dùng yêu cầu triển khai.
+
+## 7. Trạng thái triển khai
+
+Cập nhật 2026-08-23:
+
+- Task 01–14: hoàn tất implementation và kiểm thử trên Windows.
+- Task 15: hoàn tất full-system hardening, tài liệu security/recovery, CI Windows/Linux,
+  opt-in live smoke test và package build.
+- Quality gate tại checkpoint: 41 test non-live pass, live smoke test được skip nếu chưa
+  bật marker, Ruff check/format pass, Mypy strict pass và `python -m build` pass.
+- Real CLI preflight: Codex và Claude capability/authentication đều pass.
+- Source change đang để uncommitted; tool không tạo commit hoặc push.

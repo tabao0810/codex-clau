@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "findings", "retryInstruction", "scopeChange"],
+  "properties": {
+    "verdict": { "enum": ["PASS", "RETRY", "BLOCKED"] },
+    "findings": { "type": "array", "items": { "type": "string" } },
+    "retryInstruction": { "type": ["string", "null"] },
+    "scopeChange": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    }
+  }
+}

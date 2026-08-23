@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "tasks", "finalVerificationCommands"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "title", "objective", "acceptanceCriteria", "requirementRefs",
+          "dependsOn", "writeScopes", "resourceLocks", "parallelSafe",
+          "verificationCommands", "relevantPaths"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "objective": { "type": "string", "minLength": 1 },
+          "acceptanceCriteria": {
+            "type": "array", "minItems": 1, "items": { "type": "string" }
+          },
+          "requirementRefs": { "type": "array", "items": { "type": "string" } },
+          "dependsOn": { "type": "array", "items": { "type": "string" } },
+          "writeScopes": {
+            "type": "array", "minItems": 1, "items": { "type": "string" }
+          },
+          "resourceLocks": { "type": "array", "items": { "type": "string" } },
+          "parallelSafe": { "type": "boolean" },
+          "verificationCommands": {
+            "type": "array",
+            "items": {
+              "type": "array", "minItems": 1, "items": { "type": "string" }
+            }
+          },
+          "relevantPaths": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "finalVerificationCommands": {
+      "type": "array",
+      "items": {
+        "type": "array", "minItems": 1, "items": { "type": "string" }
+      }
+    }
+  }
+}
