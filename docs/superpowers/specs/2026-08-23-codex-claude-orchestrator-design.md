@@ -19,6 +19,8 @@ tự commit hoặc tự push.
 
 - Tool là repository độc lập và dùng được cho nhiều repository đích.
 - Runtime là Python 3.11 trở lên.
+- Input ban đầu là một prompt tự nhiên hoặc một file SRS `.md`/`.txt` UTF-8.
+- Người dùng có thể bổ sung yêu cầu vào cùng run bằng prompt qua command `add`.
 - Python gọi trực tiếp `codex` và `claude` dưới dạng subprocess; không dùng
   Codex SDK, Claude Agent SDK, MCP hoặc HTTP để nối hai agent.
 - Codex chỉ lập kế hoạch và review, luôn chạy read-only.
@@ -33,6 +35,8 @@ tự commit hoặc tự push.
 - `process.md` ở root repository đích là trạng thái bền vững và giao diện theo
   dõi tiến trình cho người dùng.
 - `resume` đọc `process.md` và tiếp tục bước chưa hoàn tất.
+- Requirement revision là append-only; mọi lần replan đều giữ liên kết về input
+  hoặc SRS đã tạo ra task.
 - Mỗi task có tối đa hai lần retry sau lần thực hiện đầu tiên.
 - Claude session được rotate khi mức dùng context đạt ngưỡng mặc định 55%.
 - Quyền terminal tự động nhưng bị giới hạn; khi cần quyền ngoài policy, run
@@ -40,12 +44,38 @@ tự commit hoặc tự push.
 
 ## 3. Giao diện CLI
 
-Hai command chính:
+Các command chính:
 
 ```text
 codex-claude run "<mục tiêu>" --cwd <repository>
+codex-claude run --spec <requirements.md|requirements.txt> --cwd <repository>
+codex-claude add "<yêu cầu bổ sung>" --cwd <repository>
 codex-claude resume --cwd <repository>
 ```
+
+`run` nhận đúng một input source: positional prompt hoặc `--spec`. Truyền cả hai
+là lỗi validation. `--spec` chỉ nhận file thường `.md`/`.txt`, UTF-8, tối đa
+1 MiB. File có thể nằm ngoài repository khi người dùng truyền đường dẫn tường
+minh; Controller đọc nội dung và đưa vào Codex qua stdin/prompt thay vì cấp thêm
+filesystem scope cho agent.
+
+Với SRS, `process.md` lưu canonical path, size và SHA-256, không sao chép toàn bộ
+nội dung. `resume` từ chối nếu file không còn tồn tại hoặc digest thay đổi. Nếu
+SRS có requirement ID, planning contract giữ ID trong `requirementRefs`; nếu
+không, Codex dùng section heading hoặc line reference ổn định.
+
+Nội dung chuẩn hóa của input/revision được lưu làm recovery artifact dưới
+`.git/codex-claude/<run-id>/inputs/`; `process.md` chỉ lưu artifact path, digest
+và summary đã redaction/truncate. Nhờ đó prompt do một process `add` nhận vẫn còn
+nguyên vẹn để Controller replan sau khi process đó thoát, nhưng không xuất hiện
+trong source diff.
+
+`add` nhận prompt bổ sung và tạo requirement revision append-only. Khi run đang
+hoạt động, revision được queue và Controller replan tại safe boundary; worker
+đang chạy không bị thay đổi prompt giữa task. Khi run `COMPLETED`, `add` mở lại
+run ở phase `REPLANNING`. Với `PAUSED` hoặc `BLOCKED`, revision được lưu và áp
+dụng ở lần `resume` tiếp theo. `add` chỉ thành công khi HEAD và working-tree
+digest vẫn khớp checkpoint do tool quản lý.
 
 Các cấu hình vận hành:
 
@@ -59,7 +89,7 @@ Các cấu hình vận hành:
 
 `--max-workers` là số nguyên dương. Giá trị context hợp lệ nằm trong khoảng
 1–100. Timeout dùng giây và phải là số nguyên dương. `run` từ chối nếu đã có run
-chưa kết thúc; `resume` từ chối nếu không có state hợp lệ.
+chưa kết thúc; `add` và `resume` từ chối nếu không có state hợp lệ.
 
 ## 4. Kiến trúc
 
@@ -80,6 +110,12 @@ Mục tiêu người dùng
 Controller là state machine xác định trước, không tự đưa ra quyết định về code.
 Nó quản lý subprocess, scheduler, timeout, retry, context rotation, worktree,
 patch integration, Git inspection và cập nhật `process.md`.
+
+Controller cũng chuẩn hóa input, tính digest SRS, quản lý requirement revisions
+và tạo planning context. Thứ tự ưu tiên bắt buộc là: security policy của tool,
+repository rules, SRS/goal cùng revision của người dùng, sau đó mới đến đề xuất
+của agent. Mâu thuẫn không thể thỏa đồng thời dẫn tới `BLOCKED` thay vì âm thầm
+chọn một nguồn.
 
 Controller chạy child process bằng argv với `cwd` cố định, không dùng
 `shell=True`. Nó stream stdout/stderr để người dùng quan sát, đồng thời parse
@@ -170,9 +206,22 @@ ProcessStore render phần Markdown cho người đọc và một JSON block có
 cuối `process.md`. JSON là nguồn state cho `resume`. Update dùng file tạm cùng
 filesystem rồi `os.replace()` để tránh file dở dang khi process chết.
 
+Trước run đầu tiên, ProcessStore từ chối ghi đè `process.md` đã được repository
+track hoặc một file cùng tên không có marker của tool. Với file do tool tạo, nó
+thêm `/process.md` vào `.git/info/exclude` để trạng thái vận hành không đi vào
+source diff. Khi tạo run mới sau một run kết thúc, bản cuối được archive dưới
+`.git/codex-claude/<run-id>/` trước khi root `process.md` được thay thế.
+
 Một OS-level lock dành riêng cho repository ngăn hai Controller điều phối cùng
 một run. Lock và patch là artifact nội bộ; mọi trạng thái task vẫn nằm trong
 `process.md`.
+
+Run ownership lock ngăn Controller thứ hai khởi động worker. `add` là control
+command, không phải Controller thứ hai: nó dùng state-write lock ngắn hạn, append
+revision, tăng `generation`, rồi thoát. Controller đang chạy kiểm tra generation
+tại mỗi safe boundary, reload state và đưa revision mới vào `REPLAN_PENDING`.
+Mọi ghi state dùng compare-and-swap theo generation để không làm mất prompt mới
+khi worker đồng thời báo kết quả.
 
 ## 5. Giao tiếp giữa Codex và Claude
 
@@ -202,7 +251,32 @@ Controller không chuyển raw transcript giữa hai agent. Log, diff và test o
 
 ## 6. Contract dữ liệu
 
-### 6.1 Planning contract
+### 6.1 Input contract
+
+Input ban đầu có một trong hai dạng:
+
+```json
+{
+  "type": "prompt",
+  "text": "Thêm chức năng đăng nhập"
+}
+```
+
+```json
+{
+  "type": "srs",
+  "path": "D:/project/docs/srs.md",
+  "sizeBytes": 42173,
+  "sha256": "<64 lowercase hex characters>"
+}
+```
+
+Mỗi input và prompt bổ sung tạo một revision gồm `id`, `type`, `createdAt`,
+`sha256`, input artifact path, display summary đã lọc và status `QUEUED`,
+`PLANNING`, `APPLIED` hoặc `BLOCKED`. Nội dung prompt/SRS được dùng để planning
+nhưng không được phép mở rộng terminal permission hoặc bỏ qua repository rule.
+
+### 6.2 Planning contract
 
 Codex trả final response theo JSON Schema tương đương:
 
@@ -215,6 +289,7 @@ Codex trả final response theo JSON Schema tương đương:
       "title": "Thêm authentication service",
       "objective": "Triển khai service theo quy tắc repository",
       "acceptanceCriteria": ["Test authentication thành công"],
+      "requirementRefs": ["R01:AUTH-001"],
       "dependsOn": [],
       "writeScopes": ["src/auth/", "tests/auth/"],
       "resourceLocks": ["auth-test-database"],
@@ -240,11 +315,17 @@ directory scope là prefix theo path segment của scope còn lại.
 `port:3000` hoặc `package-manager`. Hai task dùng cùng lock không chạy đồng thời.
 Controller không tin `parallelSafe` nếu scope/lock analysis không đạt.
 
-### 6.2 Execution handoff
+Khi replan vì `add`, Codex nhận accepted task history, current diff, task chưa
+chạy và toàn bộ revision chưa áp dụng. Task hoàn tất không bị sửa lịch sử; Codex
+tạo task mới hoặc thay thế task chưa bắt đầu. Task mới phải giữ
+`requirementRefs` về revision đã tạo ra nó.
+
+### 6.3 Execution handoff
 
 Prompt cho Claude gồm:
 
 - goal tổng thể và task hiện tại;
+- requirement excerpts liên quan, không lặp toàn bộ SRS cho mọi worker;
 - objective và acceptance criteria;
 - dependency result cần thiết;
 - relevant paths và write scopes;
@@ -255,7 +336,7 @@ Prompt cho Claude gồm:
 - yêu cầu báo `scope_change_required` thay vì sửa ngoài scope;
 - yêu cầu trả final structured summary.
 
-### 6.3 Review contract
+### 6.4 Review contract
 
 Codex review trả:
 
@@ -279,10 +360,14 @@ Run state:
 
 ```text
 PREPARING -> PLANNING -> SCHEDULING -> EXECUTING -> INTEGRATING
-                              ^             |             |
-                              +-------------+-------------+
-                                            |
-                              COMPLETED | BLOCKED | PAUSED
+                 ^            ^             |             |
+                 |            +-------------+-------------+
+                 +---- REPLANNING <- REPLAN_PENDING
+
+all tasks + final review PASS -> COMPLETED
+any active phase -> PAUSED | BLOCKED
+COMPLETED --add--> REPLANNING
+PAUSED | BLOCKED --add + resume--> REPLANNING
 ```
 
 Mỗi task có state `PENDING`, `READY`, `RUNNING`, `VERIFYING`, `REVIEWING`,
@@ -298,6 +383,12 @@ Nếu một worker bị BLOCKED, các worker độc lập đang chạy được 
 boundary và lưu kết quả. Scheduler không chạy task phụ thuộc vào task bị chặn.
 Run chuyển BLOCKED sau khi không còn worker có thể tiến triển an toàn.
 
+`add` trong khi run hoạt động tạo `REPLAN_PENDING`. Controller cho worker hiện
+tại đi tới safe boundary, tích hợp kết quả đã PASS, ngừng cấp task mới rồi vào
+`REPLANNING`. `add` trên run `COMPLETED` chuyển trực tiếp sang `REPLANNING` sau
+khi xác minh checkpoint. Revision trên `PAUSED`/`BLOCKED` chờ `resume` kích hoạt
+replan. Completed task history là append-only qua mọi plan revision.
+
 ## 8. Định dạng process.md
 
 Phần người đọc có dạng:
@@ -310,6 +401,11 @@ Goal: Thêm chức năng đăng nhập
 Status: EXECUTING
 Active tasks: T02, T03
 Updated: 2026-08-23T07:42:15Z
+
+| Revision | Type | Source/Summary | Status |
+|----------|------|----------------|--------|
+| R01 | SRS | docs/srs.md | APPLIED |
+| R02 | Prompt | Bổ sung đăng nhập Google | QUEUED |
 
 | Task | Worker | Status | Attempt | Worktree | Context |
 |------|--------|--------|---------|----------|---------|
@@ -329,7 +425,8 @@ T01.patch đã áp dụng thành công.
 JSON state block chứa tối thiểu:
 
 - `schemaVersion`, `runId`, `repository`, `initialHead`;
-- goal, run status, phase và timestamps UTC;
+- input source metadata, SRS digest và requirement revision history;
+- state generation, goal, run status, phase và timestamps UTC;
 - Codex thread ID và scheduler configuration;
 - task DAG, worker assignment và active task list;
 - attempt, Claude session history và context usage theo worker;
@@ -339,7 +436,8 @@ JSON state block chứa tối thiểu:
 - policy, resource locks và timeout áp dụng cho run.
 
 `resume` từ chối nếu JSON sai schema/version, repository không khớp, initial
-HEAD đã thay đổi, accepted patch không khớp digest hoặc Controller khác giữ lock.
+HEAD đã thay đổi, SRS hoặc accepted patch không khớp digest, working tree lệch
+checkpoint hoặc Controller khác giữ run ownership lock.
 
 ## 9. Claude context rotation
 
@@ -418,6 +516,9 @@ Timeout mặc định:
 | Loại lỗi | Hành vi |
 |---|---|
 | Thiếu CLI, chưa đăng nhập, repo dirty | `BLOCKED` trước khi sửa file |
+| SRS sai extension/UTF-8/quá 1 MiB | Từ chối input trước khi tạo plan |
+| SRS digest thay đổi khi resume | `BLOCKED`; không tiếp tục plan cũ |
+| `add` gặp HEAD/diff lệch checkpoint | Từ chối revision và giữ run hiện tại |
 | Task DAG có cycle hoặc scope không hợp lệ | Từ chối plan và yêu cầu Codex lập lại một lần |
 | Rate limit, lỗi mạng, provider overload | Infra retry với exponential backoff; không tăng task attempt |
 | Claude làm sai hoặc verification fail | Codex review, sau đó dùng tối đa hai task retry |
@@ -442,7 +543,9 @@ task cuối:
 3. yêu cầu Codex review tổng thể lần cuối;
 4. chỉ ghi `COMPLETED` nếu verification thành công và final review PASS;
 5. giữ toàn bộ source change chưa commit cho người dùng kiểm tra;
-6. dọn worktree và artifact tạm do tool sở hữu sau khi state cuối đã ghi xong.
+6. dọn detached worktree sau khi state cuối đã ghi xong;
+7. giữ accepted patch artifact để `add` có thể mở lại run trước khi người dùng
+   commit; artifact được archive/dọn khi một run mới bắt đầu trên HEAD mới.
 
 Nếu final review RETRY, Codex phải chỉ ra task sở hữu thay đổi cần sửa; retry vẫn
 tuân theo attempt budget. Nếu không thể quy trách nhiệm an toàn, run BLOCKED.
@@ -455,6 +558,8 @@ codex-claude/
 ├── src/codex_claude/
 │   ├── cli.py
 │   ├── controller.py
+│   ├── input_loader.py
+│   ├── requirements.py
 │   ├── scheduler.py
 │   ├── state.py
 │   ├── process_store.py
@@ -481,6 +586,8 @@ mypy là development dependencies.
 ### 15.1 Unit test
 
 - state transition và invariant;
+- prompt/SRS validation, UTF-8 decode, size limit và SHA-256;
+- requirement revision append, generation CAS và precedence;
 - DAG validation, ready queue và deterministic scheduling;
 - write scope overlap và resource locks;
 - task retry và infra retry;
@@ -500,18 +607,22 @@ không cần credential và không tốn token.
 Các scenario bắt buộc:
 
 1. hai task độc lập chạy đồng thời trong hai worktree và tích hợp thành công;
-2. hai write scope overlap bị scheduler chuyển thành chạy tuần tự;
-3. task dependency chỉ chạy sau khi patch dependency đã tích hợp;
-4. resource lock giống nhau ngăn verification chạy đồng thời;
-5. unexpected changed path hoặc patch conflict không được apply;
-6. verification fail, Codex yêu cầu retry, Claude sửa thành công;
-7. context đạt 55% và session mới tiếp tục trong cùng worktree;
-8. ba rotation dẫn tới `BLOCKED`;
-9. Ctrl+C tạo `PAUSED`, giữ worktree và resume thành công;
-10. JSONL hỏng, timeout và provider overload;
-11. repo dirty, HEAD đổi và hai Controller chạy đồng thời;
-12. secret không xuất hiện trong prompt summary hoặc `process.md`;
-13. tương thích Windows và Linux.
+2. prompt trực tiếp và SRS `.md`/`.txt` đều tạo planning context đúng;
+3. SRS đổi digest khi resume dẫn tới `BLOCKED`;
+4. `add` khi RUNNING được queue và replan sau safe boundary;
+5. `add` khi COMPLETED mở lại run mà không mất accepted change;
+6. hai write scope overlap bị scheduler chuyển thành chạy tuần tự;
+7. task dependency chỉ chạy sau khi patch dependency đã tích hợp;
+8. resource lock giống nhau ngăn verification chạy đồng thời;
+9. unexpected changed path hoặc patch conflict không được apply;
+10. verification fail, Codex yêu cầu retry, Claude sửa thành công;
+11. context đạt 55% và session mới tiếp tục trong cùng worktree;
+12. ba rotation dẫn tới `BLOCKED`;
+13. Ctrl+C tạo `PAUSED`, giữ worktree và resume thành công;
+14. JSONL hỏng, timeout và provider overload;
+15. repo dirty, HEAD đổi và hai Controller chạy đồng thời;
+16. secret không xuất hiện trong prompt summary hoặc `process.md`;
+17. tương thích Windows và Linux.
 
 Smoke test với Codex/Claude thật là opt-in và chỉ chạy khi người dùng đã đăng
 nhập cả hai CLI.
@@ -529,7 +640,10 @@ pytest
 
 MVP đạt khi:
 
-- `run` nhận goal và repository sạch, tạo task DAG rồi thực hiện an toàn;
+- `run` nhận đúng một prompt hoặc SRS `.md`/`.txt` trên repository sạch, tạo
+  task DAG rồi thực hiện an toàn;
+- `add` append prompt revision, replan ở safe boundary và hoạt động cả sau
+  `COMPLETED` khi checkpoint còn nguyên;
 - mặc định tối đa hai Claude worker chạy đồng thời khi scope/lock độc lập;
 - mỗi worker được cách ly trong detached worktree;
 - chỉ Claude tạo source diff và Codex chỉ review read-only;
